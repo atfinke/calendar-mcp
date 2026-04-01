@@ -64,6 +64,7 @@ struct CalendarMCPHelperAppMain {
         "list-events",
         "get-event",
         "create-event",
+        "update-event",
         "delete-event"
     ]
 
@@ -151,7 +152,7 @@ struct CalendarMCPHelperAppMain {
 
     static func parseInvocation(_ rawArguments: [String]) throws -> (command: String, options: [String: String], responsePath: String?) {
         guard let command = rawArguments.first else {
-            throw HelperError.message("Missing command. Use one of: permissions, list-calendars, list-events, get-event, create-event, delete-event")
+            throw HelperError.message("Missing command. Use one of: permissions, list-calendars, list-events, get-event, create-event, update-event, delete-event")
         }
 
         var options = try parseOptions(Array(rawArguments.dropFirst()))
@@ -248,6 +249,49 @@ struct CalendarMCPHelperAppMain {
             )
             return try encodeJSON(payload)
 
+        case "update-event":
+            try ensureWriteAccess()
+            let eventIdentifier = options["event-identifier"]
+            let calendarItemIdentifier = options["calendar-item-identifier"]
+            let externalIdentifier = options["external-identifier"]
+            let occurrenceDate = try optionalDateOption(options, key: "occurrence-date")
+            let title = options["title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let start = try optionalDateOption(options, key: "start")
+            let end = try optionalDateOption(options, key: "end")
+            let calendarID = options["calendar-id"]
+            let location = options["location"]
+            let clearLocation = try optionalBoolOption(options, key: "clear-location") ?? false
+            let notes = options["notes"]
+            let clearNotes = try optionalBoolOption(options, key: "clear-notes") ?? false
+            let url = try optionalURLOption(options, key: "url")
+            let clearURL = try optionalBoolOption(options, key: "clear-url") ?? false
+            let allDay = try optionalBoolOption(options, key: "all-day")
+            let timeZoneIdentifier = options["time-zone"]
+            let clearTimeZone = try optionalBoolOption(options, key: "clear-time-zone") ?? false
+            let scope = stringOption(options, key: "scope", defaultValue: "occurrence")
+            let payload = try updateEvent(
+                store: store,
+                eventIdentifier: eventIdentifier,
+                calendarItemIdentifier: calendarItemIdentifier,
+                externalIdentifier: externalIdentifier,
+                occurrenceDate: occurrenceDate,
+                title: title,
+                start: start,
+                end: end,
+                calendarID: calendarID,
+                location: location,
+                clearLocation: clearLocation,
+                notes: notes,
+                clearNotes: clearNotes,
+                url: url,
+                clearURL: clearURL,
+                allDay: allDay,
+                timeZoneIdentifier: timeZoneIdentifier,
+                clearTimeZone: clearTimeZone,
+                scope: scope
+            )
+            return try encodeJSON(payload)
+
         case "delete-event":
             try ensureWriteAccess()
             let eventIdentifier = options["event-identifier"]
@@ -335,6 +379,21 @@ struct CalendarMCPHelperAppMain {
             return false
         default:
             return defaultValue
+        }
+    }
+
+    static func optionalBoolOption(_ options: [String: String], key: String) throws -> Bool? {
+        guard let value = options[key] else {
+            return nil
+        }
+
+        switch value.lowercased() {
+        case "1", "true", "yes", "y":
+            return true
+        case "0", "false", "no", "n":
+            return false
+        default:
+            throw HelperError.message("Invalid boolean value '\(value)' for --\(key)")
         }
     }
 
@@ -656,25 +715,14 @@ struct CalendarMCPHelperAppMain {
             return toEventPayload(event: event)
         }
 
-        if let eventIdentifier, let event = store.event(withIdentifier: eventIdentifier) {
-            return toEventPayload(event: event)
-        }
-
-        if let calendarItemIdentifier,
-           let event = store.calendarItem(withIdentifier: calendarItemIdentifier) as? EKEvent
-        {
-            return toEventPayload(event: event)
-        }
-
-        if let externalIdentifier,
-           let event = store.calendarItems(withExternalIdentifier: externalIdentifier)
-            .compactMap({ $0 as? EKEvent })
-            .first
-        {
-            return toEventPayload(event: event)
-        }
-
-        throw HelperError.message("Event not found.")
+        return toEventPayload(
+            event: try resolveEvent(
+                store: store,
+                eventIdentifier: eventIdentifier,
+                calendarItemIdentifier: calendarItemIdentifier,
+                externalIdentifier: externalIdentifier
+            )
+        )
     }
 
     static func createEvent(
@@ -731,6 +779,151 @@ struct CalendarMCPHelperAppMain {
         return toEventPayload(event: event)
     }
 
+    static func updateEvent(
+        store: EKEventStore,
+        eventIdentifier: String?,
+        calendarItemIdentifier: String?,
+        externalIdentifier: String?,
+        occurrenceDate: Date?,
+        title: String?,
+        start: Date?,
+        end: Date?,
+        calendarID: String?,
+        location: String?,
+        clearLocation: Bool,
+        notes: String?,
+        clearNotes: Bool,
+        url: URL?,
+        clearURL: Bool,
+        allDay: Bool?,
+        timeZoneIdentifier: String?,
+        clearTimeZone: Bool,
+        scope: String
+    ) throws -> EventPayload {
+        guard eventIdentifier != nil || calendarItemIdentifier != nil || externalIdentifier != nil else {
+            throw HelperError.message("Provide eventIdentifier, calendarItemIdentifier, or externalIdentifier.")
+        }
+
+        let hasAnyUpdate =
+            title != nil ||
+            start != nil ||
+            end != nil ||
+            calendarID != nil ||
+            location != nil ||
+            clearLocation ||
+            notes != nil ||
+            clearNotes ||
+            url != nil ||
+            clearURL ||
+            allDay != nil ||
+            timeZoneIdentifier != nil ||
+            clearTimeZone
+        guard hasAnyUpdate else {
+            throw HelperError.message("Provide at least one field to update.")
+        }
+
+        if clearLocation, location != nil {
+            throw HelperError.message("Provide either location or clearLocation, not both.")
+        }
+
+        if clearNotes, notes != nil {
+            throw HelperError.message("Provide either notes or clearNotes, not both.")
+        }
+
+        if clearURL, url != nil {
+            throw HelperError.message("Provide either url or clearUrl, not both.")
+        }
+
+        if clearTimeZone, timeZoneIdentifier != nil {
+            throw HelperError.message("Provide either timeZone or clearTimeZone, not both.")
+        }
+
+        let event = try resolveUpdateTarget(
+            store: store,
+            eventIdentifier: eventIdentifier,
+            calendarItemIdentifier: calendarItemIdentifier,
+            externalIdentifier: externalIdentifier,
+            occurrenceDate: occurrenceDate
+        )
+
+        guard event.calendar.allowsContentModifications else {
+            throw HelperError.message("Calendar '\(event.calendar.title)' does not allow modifications.")
+        }
+
+        let ekSpan = try resolveRecurringSpan(
+            event: event,
+            occurrenceDate: occurrenceDate,
+            scope: scope,
+            operation: "update"
+        )
+
+        if let title {
+            guard !title.isEmpty else {
+                throw HelperError.message("Updated title cannot be empty.")
+            }
+            event.title = title
+        }
+
+        if let start {
+            event.startDate = start
+        }
+
+        if let end {
+            event.endDate = end
+        }
+
+        if let calendarID {
+            guard let resolvedCalendar = store.calendar(withIdentifier: calendarID) else {
+                throw HelperError.message("Unknown calendar identifier: \(calendarID)")
+            }
+
+            guard resolvedCalendar.allowsContentModifications else {
+                throw HelperError.message("Calendar '\(resolvedCalendar.title)' does not allow modifications.")
+            }
+
+            event.calendar = resolvedCalendar
+        }
+
+        if clearLocation {
+            event.location = nil
+        } else if let location {
+            event.location = location
+        }
+
+        if clearNotes {
+            event.notes = nil
+        } else if let notes {
+            event.notes = notes
+        }
+
+        if clearURL {
+            event.url = nil
+        } else if let url {
+            event.url = url
+        }
+
+        if let allDay {
+            event.isAllDay = allDay
+        }
+
+        if clearTimeZone {
+            event.timeZone = nil
+        } else if let timeZoneIdentifier {
+            guard let timeZone = TimeZone(identifier: timeZoneIdentifier) else {
+                throw HelperError.message("Unknown time zone identifier: \(timeZoneIdentifier)")
+            }
+            event.timeZone = timeZone
+        }
+
+        guard event.endDate > event.startDate else {
+            throw HelperError.message("The end date must be after the start date.")
+        }
+
+        try store.save(event, span: ekSpan, commit: true)
+
+        return toEventPayload(event: event)
+    }
+
     static func deleteEvent(
         store: EKEventStore,
         eventIdentifier: String?,
@@ -749,27 +942,12 @@ struct CalendarMCPHelperAppMain {
             occurrenceDate: occurrenceDate
         )
 
-        let ekSpan: EKSpan
-        switch scope {
-        case "occurrence":
-            ekSpan = .thisEvent
-        case "series":
-            guard occurrenceDate == nil else {
-                throw HelperError.message("Series deletion must target the recurring series itself. Omit occurrenceDate.")
-            }
-
-            guard event.hasRecurrenceRules else {
-                throw HelperError.message("Series deletion is only supported for recurring events.")
-            }
-
-            guard !event.isDetached else {
-                throw HelperError.message("Series deletion is not supported for detached recurring instances. Identify the recurring series instead.")
-            }
-
-            ekSpan = .futureEvents
-        default:
-            throw HelperError.message("Invalid scope '\(scope)'. Use 'occurrence' or 'series'.")
-        }
+        let ekSpan = try resolveRecurringSpan(
+            event: event,
+            occurrenceDate: occurrenceDate,
+            scope: scope,
+            operation: "deletion"
+        )
 
         let deletedEventIdentifier = event.eventIdentifier
         let deletedCalendarItemIdentifier = event.calendarItemIdentifier
@@ -802,9 +980,68 @@ struct CalendarMCPHelperAppMain {
             return event
         }
 
+        return try resolveEvent(
+            store: store,
+            eventIdentifier: eventIdentifier,
+            calendarItemIdentifier: calendarItemIdentifier,
+            externalIdentifier: nil
+        )
+    }
+
+    static func resolveUpdateTarget(
+        store: EKEventStore,
+        eventIdentifier: String?,
+        calendarItemIdentifier: String?,
+        externalIdentifier: String?,
+        occurrenceDate: Date?
+    ) throws -> EKEvent {
+        if let occurrenceDate {
+            guard let event = findEventOccurrence(
+                store: store,
+                eventIdentifier: eventIdentifier,
+                calendarItemIdentifier: calendarItemIdentifier,
+                externalIdentifier: externalIdentifier,
+                occurrenceDate: occurrenceDate
+            ) else {
+                throw HelperError.message("No recurring event occurrence matched the requested identifiers and occurrenceDate.")
+            }
+
+            return event
+        }
+
+        return try resolveEvent(
+            store: store,
+            eventIdentifier: eventIdentifier,
+            calendarItemIdentifier: calendarItemIdentifier,
+            externalIdentifier: externalIdentifier
+        )
+    }
+
+    static func resolveEvent(
+        store: EKEventStore,
+        eventIdentifier: String?,
+        calendarItemIdentifier: String?,
+        externalIdentifier: String?
+    ) throws -> EKEvent {
+        guard eventIdentifier != nil || calendarItemIdentifier != nil || externalIdentifier != nil else {
+            throw HelperError.message("Provide eventIdentifier, calendarItemIdentifier, or externalIdentifier.")
+        }
+
         let resolvedByEventIdentifier = eventIdentifier.flatMap(store.event(withIdentifier:))
         let resolvedByCalendarItemIdentifier = calendarItemIdentifier.flatMap {
             store.calendarItem(withIdentifier: $0) as? EKEvent
+        }
+
+        var resolvedByExternalIdentifier: EKEvent?
+        if let externalIdentifier {
+            let matchingEvents = store.calendarItems(withExternalIdentifier: externalIdentifier)
+                .compactMap { $0 as? EKEvent }
+
+            if matchingEvents.count > 1 {
+                throw HelperError.message("externalIdentifier resolved to multiple events. Provide eventIdentifier or calendarItemIdentifier instead.")
+            }
+
+            resolvedByExternalIdentifier = matchingEvents.first
         }
 
         if eventIdentifier != nil, resolvedByEventIdentifier == nil {
@@ -815,22 +1052,55 @@ struct CalendarMCPHelperAppMain {
             throw HelperError.message("Event not found for calendarItemIdentifier.")
         }
 
-        if let resolvedByEventIdentifier = resolvedByEventIdentifier,
-           let resolvedByCalendarItemIdentifier = resolvedByCalendarItemIdentifier,
-           resolvedByEventIdentifier.calendarItemIdentifier != resolvedByCalendarItemIdentifier.calendarItemIdentifier
-        {
-            throw HelperError.message("eventIdentifier and calendarItemIdentifier resolved to different events.")
+        if externalIdentifier != nil, resolvedByExternalIdentifier == nil {
+            throw HelperError.message("Event not found for externalIdentifier.")
         }
 
-        if let resolvedByEventIdentifier = resolvedByEventIdentifier {
-            return resolvedByEventIdentifier
+        let resolvedEvents = [
+            resolvedByEventIdentifier,
+            resolvedByCalendarItemIdentifier,
+            resolvedByExternalIdentifier
+        ].compactMap { $0 }
+
+        guard let firstResolvedEvent = resolvedEvents.first else {
+            throw HelperError.message("Event not found.")
         }
 
-        if let resolvedByCalendarItemIdentifier = resolvedByCalendarItemIdentifier {
-            return resolvedByCalendarItemIdentifier
+        for resolvedEvent in resolvedEvents.dropFirst() {
+            if resolvedEvent.calendarItemIdentifier != firstResolvedEvent.calendarItemIdentifier {
+                throw HelperError.message("Provided identifiers resolved to different events.")
+            }
         }
 
-        throw HelperError.message("Event not found.")
+        return firstResolvedEvent
+    }
+
+    static func resolveRecurringSpan(
+        event: EKEvent,
+        occurrenceDate: Date?,
+        scope: String,
+        operation: String
+    ) throws -> EKSpan {
+        switch scope {
+        case "occurrence":
+            return .thisEvent
+        case "series":
+            guard occurrenceDate == nil else {
+                throw HelperError.message("Series \(operation) must target the recurring series itself. Omit occurrenceDate.")
+            }
+
+            guard event.hasRecurrenceRules else {
+                throw HelperError.message("Series \(operation) is only supported for recurring events.")
+            }
+
+            guard !event.isDetached else {
+                throw HelperError.message("Series \(operation) is not supported for detached recurring instances. Identify the recurring series instead.")
+            }
+
+            return .futureEvents
+        default:
+            throw HelperError.message("Invalid scope '\(scope)'. Use 'occurrence' or 'series'.")
+        }
     }
 
     static func findEventOccurrence(

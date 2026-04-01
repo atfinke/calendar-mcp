@@ -34,6 +34,8 @@ When opened directly, the app will request Calendar access and show a status ale
 
 Delete safety is intentionally narrow: each `calendar_delete_event` call can remove only one resolved target. Recurring deletes support one occurrence or one entire series, but not `futureEvents` or any bulk-delete shape.
 
+`calendar_update_event` updates an event in place instead of forcing a delete-and-recreate flow. Omitted fields stay unchanged. To clear nullable fields, pass one of `clearLocation`, `clearNotes`, `clearUrl`, or `clearTimeZone`.
+
 ## MCP config
 
 ```json
