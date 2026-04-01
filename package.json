@@ -6,12 +6,12 @@
   "description": "Local Apple Calendar MCP server backed by an EventKit helper app.",
   "scripts": {
     "build": "tsc -p tsconfig.json",
-    "build:helper-app": "xcodebuild -project CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj -scheme CalendarMCPHelperApp -configuration Release -derivedDataPath CalendarMCPHelperApp/build",
-    "build:helper-app:ci": "xcodebuild -project CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj -scheme CalendarMCPHelperApp -configuration Release -derivedDataPath CalendarMCPHelperApp/build CODE_SIGNING_ALLOWED=NO",
+    "build:helper-app": "./scripts/build-helper-app.sh",
+    "build:helper-app:ci": "xcodebuild -project CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj -scheme CalendarMCPHelperApp -configuration Release -derivedDataPath CalendarMCPHelperApp/build-ci CODE_SIGNING_ALLOWED=NO",
     "check": "tsc --noEmit -p tsconfig.json",
     "dev": "tsx src/index.ts",
     "start": "node dist/index.js",
-    "verify": "npm run check && npm run build && npm run build:helper-app"
+    "verify": "npm run check && npm run build && npm run build:helper-app:ci"
   },
   "engines": {
     "node": ">=20"
