@@ -1,7 +1,6 @@
 node_modules/
 dist/
 CalendarMCPHelperApp/build/
-/calendar-mcp/
 .DS_Store
 **/.DS_Store
 *.xcuserstate
