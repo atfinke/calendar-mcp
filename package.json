@@ -1,0 +1,28 @@
+{
+  "name": "calendar-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Apple Calendar MCP server backed by an EventKit helper app.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "build:helper-app": "xcodebuild -project CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj -scheme CalendarMCPHelperApp -configuration Release -derivedDataPath CalendarMCPHelperApp/build",
+    "build:helper-app:ci": "xcodebuild -project CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj -scheme CalendarMCPHelperApp -configuration Release -derivedDataPath CalendarMCPHelperApp/build CODE_SIGNING_ALLOWED=NO",
+    "check": "tsc --noEmit -p tsconfig.json",
+    "dev": "tsx src/index.ts",
+    "start": "node dist/index.js",
+    "verify": "npm run check && npm run build && npm run build:helper-app"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "zod": "4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "25.5.0",
+    "tsx": "4.21.0",
+    "typescript": "6.0.2"
+  }
+}

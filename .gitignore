@@ -1,0 +1,7 @@
+node_modules/
+dist/
+CalendarMCPHelperApp/build/
+.DS_Store
+**/.DS_Store
+*.xcuserstate
+xcuserdata/
