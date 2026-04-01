@@ -10,6 +10,24 @@ const eventLookupInputSchema = {
   occurrenceDate: z.string().optional(),
 };
 
+const eventUpdateInputSchema = {
+  ...eventLookupInputSchema,
+  title: z.string().optional(),
+  start: z.string().optional(),
+  end: z.string().optional(),
+  calendarId: z.string().optional(),
+  location: z.string().optional(),
+  clearLocation: z.boolean().optional(),
+  notes: z.string().optional(),
+  clearNotes: z.boolean().optional(),
+  url: z.string().optional(),
+  clearUrl: z.boolean().optional(),
+  allDay: z.boolean().optional(),
+  timeZone: z.string().optional(),
+  clearTimeZone: z.boolean().optional(),
+  scope: z.enum(["occurrence", "series"]).optional(),
+};
+
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "calendar-mcp",
@@ -168,6 +186,84 @@ export function createServer(): McpServer {
         "event-identifier": eventIdentifier,
         "calendar-item-identifier": calendarItemIdentifier,
         "occurrence-date": occurrenceDate,
+        scope: scope ?? "occurrence",
+      });
+
+      return jsonTextResult(result);
+    },
+  );
+
+  server.registerTool(
+    "calendar_update_event",
+    {
+      title: "Update Event",
+      description:
+        "Update an existing calendar event in place. Omitted fields are left unchanged. Use clear flags to remove location, notes, url, or timeZone.",
+      inputSchema: eventUpdateInputSchema,
+    },
+    async ({
+      eventIdentifier,
+      calendarItemIdentifier,
+      externalIdentifier,
+      occurrenceDate,
+      title,
+      start,
+      end,
+      calendarId,
+      location,
+      clearLocation,
+      notes,
+      clearNotes,
+      url,
+      clearUrl,
+      allDay,
+      timeZone,
+      clearTimeZone,
+      scope,
+    }) => {
+      if (!eventIdentifier && !calendarItemIdentifier && !externalIdentifier) {
+        throw new Error(
+          "Provide at least one of eventIdentifier, calendarItemIdentifier, or externalIdentifier.",
+        );
+      }
+
+      if (
+        title === undefined &&
+        start === undefined &&
+        end === undefined &&
+        calendarId === undefined &&
+        location === undefined &&
+        !clearLocation &&
+        notes === undefined &&
+        !clearNotes &&
+        url === undefined &&
+        !clearUrl &&
+        allDay === undefined &&
+        timeZone === undefined &&
+        !clearTimeZone
+      ) {
+        throw new Error("Provide at least one field to update.");
+      }
+
+      await ensureHelperExists();
+      const result = await runHelper("update-event", {
+        "event-identifier": eventIdentifier,
+        "calendar-item-identifier": calendarItemIdentifier,
+        "external-identifier": externalIdentifier,
+        "occurrence-date": occurrenceDate,
+        title,
+        start,
+        end,
+        "calendar-id": calendarId,
+        location,
+        "clear-location": clearLocation,
+        notes,
+        "clear-notes": clearNotes,
+        url,
+        "clear-url": clearUrl,
+        "all-day": allDay,
+        "time-zone": timeZone,
+        "clear-time-zone": clearTimeZone,
         scope: scope ?? "occurrence",
       });
 
