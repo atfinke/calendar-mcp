@@ -6,6 +6,7 @@ PROJECT="CalendarMCPHelperApp/CalendarMCPHelperApp.xcodeproj"
 SCHEME="CalendarMCPHelperApp"
 DERIVED_DATA="CalendarMCPHelperApp/build"
 APP_PATH="$DERIVED_DATA/Build/Products/Release/CalendarMCPHelperApp.app"
+ENTITLEMENTS_PATH="CalendarMCPHelperApp/CalendarMCPHelperApp/CalendarMCPHelperApp.entitlements"
 
 detect_identity() {
   security find-identity -v -p codesigning | awk -F'"' '/Apple Development/ { print $2; exit }'
@@ -28,8 +29,10 @@ xcodebuild \
 codesign \
   --force \
   --deep \
+  --entitlements "$ENTITLEMENTS_PATH" \
   --options runtime \
   --timestamp=none \
+  --generate-entitlement-der \
   --sign "$CODESIGN_IDENTITY" \
   "$APP_PATH"
 

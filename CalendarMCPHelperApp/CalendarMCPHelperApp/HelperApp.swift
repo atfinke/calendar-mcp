@@ -451,20 +451,14 @@ struct CalendarMCPHelperAppMain {
     }
 
     static func permissionsPayload(store: EKEventStore, prompt: Bool, access: String) async throws -> PermissionsPayload {
-        if prompt {
-            prepareForPermissionPrompt()
+        let currentStatus = EKEventStore.authorizationStatus(for: .event)
 
-            switch access {
-            case "full":
-                _ = try await requestFullAccess(store: store)
-            case "writeOnly":
-                _ = try await requestWriteOnlyAccess(store: store)
-            default:
-                throw HelperError.message("Invalid access value '\(access)'. Use 'full' or 'writeOnly'.")
-            }
+        if prompt, currentStatus == .notDetermined {
+            prepareForPermissionPrompt()
+            return try await requestAccessAndRefreshPermissions(store: store, access: access)
         }
 
-        return permissionsPayload(for: EKEventStore.authorizationStatus(for: .event))
+        return permissionsPayload(for: currentStatus)
     }
 
     static func runInteractiveBootstrap() async -> Int32 {
@@ -475,8 +469,7 @@ struct CalendarMCPHelperAppMain {
             var payload = permissionsPayload(for: EKEventStore.authorizationStatus(for: .event))
 
             if payload.status == "notDetermined" {
-                _ = try await requestFullAccess(store: store)
-                payload = permissionsPayload(for: EKEventStore.authorizationStatus(for: .event))
+                payload = try await requestAccessAndRefreshPermissions(store: store, access: "full")
             }
 
             presentBootstrapAlert(for: payload)
@@ -584,6 +577,28 @@ struct CalendarMCPHelperAppMain {
                 continuation.resume(returning: granted)
             }
         }
+    }
+
+    static func requestAccessAndRefreshPermissions(store: EKEventStore, access: String) async throws -> PermissionsPayload {
+        do {
+            switch access {
+            case "full":
+                _ = try await requestFullAccess(store: store)
+            case "writeOnly":
+                _ = try await requestWriteOnlyAccess(store: store)
+            default:
+                throw HelperError.message("Invalid access value '\(access)'. Use 'full' or 'writeOnly'.")
+            }
+        } catch {
+            let updatedPayload = permissionsPayload(for: EKEventStore.authorizationStatus(for: .event))
+            if updatedPayload.status != "notDetermined" {
+                return updatedPayload
+            }
+
+            throw error
+        }
+
+        return permissionsPayload(for: EKEventStore.authorizationStatus(for: .event))
     }
 
     static func permissionsPayload(for status: EKAuthorizationStatus) -> PermissionsPayload {
