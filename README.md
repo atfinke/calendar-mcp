@@ -36,6 +36,20 @@ Delete safety is intentionally narrow: each `calendar_delete_event` call can rem
 
 `calendar_update_event` updates an event in place instead of forcing a delete-and-recreate flow. Omitted fields stay unchanged. To clear nullable fields, pass one of `clearLocation`, `clearNotes`, `clearUrl`, or `clearTimeZone`.
 
+## Date Inputs
+
+All tool date inputs accept these wire formats:
+
+- `2026-04-02` for a local calendar day
+- `2026-04-02T09:30` or `2026-04-02T09:30:00` for a local wall-clock time
+- `2026-04-02T09:30:00-05:00` or `2026-04-02T14:30:00Z` for an exact instant
+
+Local date-only and local date-time inputs are interpreted in the helper app's current macOS time zone. Returned event payloads always use ISO-8601 timestamps with timezone offsets.
+
+`calendar_list_events` treats `start` and `end` as the exact time window after parsing those inputs.
+
+`occurrenceDate` for recurring-event lookups also accepts `YYYY-MM-DD`. In that case the helper matches the occurrence by local calendar day. When you already have an `occurrenceDate` timestamp from a previous tool response, prefer passing that exact timestamp back.
+
 ## MCP config
 
 ```json

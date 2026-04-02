@@ -51,6 +51,16 @@ struct EventPayload: Codable {
     let calendar: CalendarSummaryPayload
 }
 
+struct ParsedDateInput {
+    enum Precision {
+        case exactTime
+        case localDay
+    }
+
+    let date: Date
+    let precision: Precision
+}
+
 enum HelperError: Error {
     case message(String)
 }
@@ -210,7 +220,7 @@ struct CalendarMCPHelperAppMain {
             let eventIdentifier = options["event-identifier"]
             let calendarItemIdentifier = options["calendar-item-identifier"]
             let externalIdentifier = options["external-identifier"]
-            let occurrenceDate = try optionalDateOption(options, key: "occurrence-date")
+            let occurrenceDate = try optionalOccurrenceDateOption(options, key: "occurrence-date")
             let payload = try getEvent(
                 store: store,
                 eventIdentifier: eventIdentifier,
@@ -254,7 +264,7 @@ struct CalendarMCPHelperAppMain {
             let eventIdentifier = options["event-identifier"]
             let calendarItemIdentifier = options["calendar-item-identifier"]
             let externalIdentifier = options["external-identifier"]
-            let occurrenceDate = try optionalDateOption(options, key: "occurrence-date")
+            let occurrenceDate = try optionalOccurrenceDateOption(options, key: "occurrence-date")
             let title = options["title"]?.trimmingCharacters(in: .whitespacesAndNewlines)
             let start = try optionalDateOption(options, key: "start")
             let end = try optionalDateOption(options, key: "end")
@@ -296,7 +306,7 @@ struct CalendarMCPHelperAppMain {
             try ensureWriteAccess()
             let eventIdentifier = options["event-identifier"]
             let calendarItemIdentifier = options["calendar-item-identifier"]
-            let occurrenceDate = try optionalDateOption(options, key: "occurrence-date")
+            let occurrenceDate = try optionalOccurrenceDateOption(options, key: "occurrence-date")
             let scope = stringOption(options, key: "scope", defaultValue: "occurrence")
             let payload = try deleteEvent(
                 store: store,
@@ -398,11 +408,15 @@ struct CalendarMCPHelperAppMain {
     }
 
     static func dateOption(_ options: [String: String], key: String) throws -> Date {
-        guard let raw = options[key], let parsed = parseISO8601(raw) else {
-            throw HelperError.message("Missing or invalid ISO-8601 date for --\(key)")
+        guard let raw = options[key] else {
+            throw HelperError.message("Missing date for --\(key). \(acceptedDateFormatsMessage(for: key))")
         }
 
-        return parsed
+        guard let parsed = parseDateInput(raw) else {
+            throw HelperError.message("Invalid date for --\(key). \(acceptedDateFormatsMessage(for: key))")
+        }
+
+        return parsed.date
     }
 
     static func optionalDateOption(_ options: [String: String], key: String) throws -> Date? {
@@ -410,8 +424,20 @@ struct CalendarMCPHelperAppMain {
             return nil
         }
 
-        guard let parsed = parseISO8601(raw) else {
-            throw HelperError.message("Invalid ISO-8601 date for --\(key)")
+        guard let parsed = parseDateInput(raw) else {
+            throw HelperError.message("Invalid date for --\(key). \(acceptedDateFormatsMessage(for: key))")
+        }
+
+        return parsed.date
+    }
+
+    static func optionalOccurrenceDateOption(_ options: [String: String], key: String) throws -> ParsedDateInput? {
+        guard let raw = options[key] else {
+            return nil
+        }
+
+        guard let parsed = parseDateInput(raw) else {
+            throw HelperError.message("Invalid date for --\(key). \(acceptedDateFormatsMessage(for: key))")
         }
 
         return parsed
@@ -442,12 +468,44 @@ struct CalendarMCPHelperAppMain {
         return url
     }
 
-    static func parseISO8601(_ raw: String) -> Date? {
+    static func parseDateInput(_ raw: String) -> ParsedDateInput? {
         if let parsed = fractionalISO8601Formatter.date(from: raw) {
-            return parsed
+            return ParsedDateInput(date: parsed, precision: .exactTime)
         }
 
-        return iso8601Formatter.date(from: raw)
+        if let parsed = iso8601Formatter.date(from: raw) {
+            return ParsedDateInput(date: parsed, precision: .exactTime)
+        }
+
+        if let parsed = localFractionalDateTimeFormatter.date(from: raw) {
+            return ParsedDateInput(date: parsed, precision: .exactTime)
+        }
+
+        if let parsed = localSecondDateTimeFormatter.date(from: raw) {
+            return ParsedDateInput(date: parsed, precision: .exactTime)
+        }
+
+        if let parsed = localMinuteDateTimeFormatter.date(from: raw) {
+            return ParsedDateInput(date: parsed, precision: .exactTime)
+        }
+
+        if let parsed = localDateFormatter.date(from: raw) {
+            return ParsedDateInput(date: parsed, precision: .localDay)
+        }
+
+        return nil
+    }
+
+    static func acceptedDateFormatsMessage(for key: String) -> String {
+        let base = """
+        Accepted formats: YYYY-MM-DD (local calendar day), YYYY-MM-DDTHH:mm, YYYY-MM-DDTHH:mm:ss, YYYY-MM-DDTHH:mm:ss.SSS, or an ISO-8601 timestamp with timezone like 2026-04-02T09:30:00-05:00.
+        """
+
+        if key == "occurrence-date" {
+            return "\(base) For --occurrence-date, YYYY-MM-DD matches by local calendar day."
+        }
+
+        return base
     }
 
     static func permissionsPayload(store: EKEventStore, prompt: Bool, access: String) async throws -> PermissionsPayload {
@@ -710,7 +768,7 @@ struct CalendarMCPHelperAppMain {
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
         externalIdentifier: String?,
-        occurrenceDate: Date?
+        occurrenceDate: ParsedDateInput?
     ) throws -> EventPayload {
         guard eventIdentifier != nil || calendarItemIdentifier != nil || externalIdentifier != nil else {
             throw HelperError.message("Provide eventIdentifier, calendarItemIdentifier, or externalIdentifier.")
@@ -799,7 +857,7 @@ struct CalendarMCPHelperAppMain {
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
         externalIdentifier: String?,
-        occurrenceDate: Date?,
+        occurrenceDate: ParsedDateInput?,
         title: String?,
         start: Date?,
         end: Date?,
@@ -943,7 +1001,7 @@ struct CalendarMCPHelperAppMain {
         store: EKEventStore,
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
-        occurrenceDate: Date?,
+        occurrenceDate: ParsedDateInput?,
         scope: String
     ) throws -> [String: String] {
         guard eventIdentifier != nil || calendarItemIdentifier != nil else {
@@ -979,7 +1037,7 @@ struct CalendarMCPHelperAppMain {
         store: EKEventStore,
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
-        occurrenceDate: Date?
+        occurrenceDate: ParsedDateInput?
     ) throws -> EKEvent {
         if let occurrenceDate {
             guard let event = findEventOccurrence(
@@ -1008,7 +1066,7 @@ struct CalendarMCPHelperAppMain {
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
         externalIdentifier: String?,
-        occurrenceDate: Date?
+        occurrenceDate: ParsedDateInput?
     ) throws -> EKEvent {
         if let occurrenceDate {
             guard let event = findEventOccurrence(
@@ -1092,7 +1150,7 @@ struct CalendarMCPHelperAppMain {
 
     static func resolveRecurringSpan(
         event: EKEvent,
-        occurrenceDate: Date?,
+        occurrenceDate: ParsedDateInput?,
         scope: String,
         operation: String
     ) throws -> EKSpan {
@@ -1123,10 +1181,18 @@ struct CalendarMCPHelperAppMain {
         eventIdentifier: String?,
         calendarItemIdentifier: String?,
         externalIdentifier: String?,
-        occurrenceDate: Date
+        occurrenceDate: ParsedDateInput
     ) -> EKEvent? {
-        let searchStart = occurrenceDate.addingTimeInterval(-2 * 24 * 60 * 60)
-        let searchEnd = occurrenceDate.addingTimeInterval(2 * 24 * 60 * 60)
+        let searchStart: Date
+        let searchEnd: Date
+        switch occurrenceDate.precision {
+        case .exactTime:
+            searchStart = occurrenceDate.date.addingTimeInterval(-2 * 24 * 60 * 60)
+            searchEnd = occurrenceDate.date.addingTimeInterval(2 * 24 * 60 * 60)
+        case .localDay:
+            searchStart = localCalendar.startOfDay(for: occurrenceDate.date)
+            searchEnd = localCalendar.date(byAdding: .day, value: 1, to: searchStart) ?? searchStart.addingTimeInterval(24 * 60 * 60)
+        }
         let predicate = store.predicateForEvents(withStart: searchStart, end: searchEnd, calendars: nil)
 
         return store.events(matching: predicate)
@@ -1137,7 +1203,7 @@ struct CalendarMCPHelperAppMain {
                     eventIdentifier: eventIdentifier,
                     calendarItemIdentifier: calendarItemIdentifier,
                     externalIdentifier: externalIdentifier
-                ) && datesMatch(event.occurrenceDate ?? event.startDate, occurrenceDate)
+                ) && occurrenceMatches(event.occurrenceDate ?? event.startDate, query: occurrenceDate)
             }
     }
 
@@ -1162,8 +1228,13 @@ struct CalendarMCPHelperAppMain {
         return true
     }
 
-    static func datesMatch(_ lhs: Date, _ rhs: Date) -> Bool {
-        abs(lhs.timeIntervalSince(rhs)) < 1
+    static func occurrenceMatches(_ eventDate: Date, query: ParsedDateInput) -> Bool {
+        switch query.precision {
+        case .exactTime:
+            return abs(eventDate.timeIntervalSince(query.date)) < 1
+        case .localDay:
+            return localCalendar.isDate(eventDate, inSameDayAs: query.date)
+        }
     }
 
     static func toCalendarPayload(calendar: EKCalendar) -> CalendarPayload {
@@ -1278,4 +1349,26 @@ struct CalendarMCPHelperAppMain {
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds, .withColonSeparatorInTimeZone]
         return formatter
     }()
+
+    static let localCalendar: Calendar = {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.locale = Locale(identifier: "en_US_POSIX")
+        calendar.timeZone = .autoupdatingCurrent
+        return calendar
+    }()
+
+    static let localDateFormatter = makeLocalDateFormatter("yyyy-MM-dd")
+    static let localMinuteDateTimeFormatter = makeLocalDateFormatter("yyyy-MM-dd'T'HH:mm")
+    static let localSecondDateTimeFormatter = makeLocalDateFormatter("yyyy-MM-dd'T'HH:mm:ss")
+    static let localFractionalDateTimeFormatter = makeLocalDateFormatter("yyyy-MM-dd'T'HH:mm:ss.SSS")
+
+    static func makeLocalDateFormatter(_ format: String) -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.calendar = localCalendar
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateFormat = format
+        formatter.isLenient = false
+        return formatter
+    }
 }

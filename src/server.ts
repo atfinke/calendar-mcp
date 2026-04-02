@@ -3,18 +3,24 @@ import { z } from "zod";
 
 import { ensureHelperExists, jsonTextResult, runHelper } from "./helper.js";
 
+const dateInputDescription =
+  "Accepts YYYY-MM-DD (local calendar day), YYYY-MM-DDTHH:mm[:ss][.SSS] (local time), or ISO-8601 / RFC 3339 with timezone like 2026-04-02T09:30:00-05:00.";
+
+const occurrenceDateInputDescription =
+  "Accepts YYYY-MM-DD to match a recurring occurrence by local calendar day, or a timestamp to match an exact occurrence start time. Prefer the exact timestamp returned by a previous read when available.";
+
 const eventLookupInputSchema = {
   eventIdentifier: z.string().optional(),
   calendarItemIdentifier: z.string().optional(),
   externalIdentifier: z.string().optional(),
-  occurrenceDate: z.string().optional(),
+  occurrenceDate: z.string().describe(occurrenceDateInputDescription).optional(),
 };
 
 const eventUpdateInputSchema = {
   ...eventLookupInputSchema,
   title: z.string().optional(),
-  start: z.string().optional(),
-  end: z.string().optional(),
+  start: z.string().describe(dateInputDescription).optional(),
+  end: z.string().describe(dateInputDescription).optional(),
   calendarId: z.string().optional(),
   location: z.string().optional(),
   clearLocation: z.boolean().optional(),
@@ -76,13 +82,14 @@ export function createServer(): McpServer {
     "calendar_list_events",
     {
       title: "List Events",
-      description: "List calendar events in a time window, optionally filtered to specific calendar identifiers.",
+      description:
+        "List calendar events in a time window. start and end accept local dates, local times, or timezone-bearing ISO-8601 timestamps.",
       annotations: {
         readOnlyHint: true,
       },
       inputSchema: {
-        start: z.string(),
-        end: z.string(),
+        start: z.string().describe(dateInputDescription),
+        end: z.string().describe(dateInputDescription),
         calendarIds: z.array(z.string()).optional(),
       },
     },
@@ -132,11 +139,12 @@ export function createServer(): McpServer {
     "calendar_create_event",
     {
       title: "Create Event",
-      description: "Create a calendar event in the default calendar or a specified calendar.",
+      description:
+        "Create a calendar event in the default calendar or a specified calendar. start and end accept local dates, local times, or timezone-bearing ISO-8601 timestamps.",
       inputSchema: {
         title: z.string(),
-        start: z.string(),
-        end: z.string(),
+        start: z.string().describe(dateInputDescription),
+        end: z.string().describe(dateInputDescription),
         calendarId: z.string().optional(),
         location: z.string().optional(),
         notes: z.string().optional(),
@@ -172,7 +180,7 @@ export function createServer(): McpServer {
       inputSchema: {
         eventIdentifier: z.string().optional(),
         calendarItemIdentifier: z.string().optional(),
-        occurrenceDate: z.string().optional(),
+        occurrenceDate: z.string().describe(occurrenceDateInputDescription).optional(),
         scope: z.enum(["occurrence", "series"]).optional(),
       },
     },
